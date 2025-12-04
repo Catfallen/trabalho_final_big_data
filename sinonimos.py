@@ -1,3 +1,7 @@
+import sys
+print("STREAMLIT PYTHON:", sys.executable)
+
+
 import pandas as pd
 import streamlit as st
 from pathlib import Path
@@ -5,6 +9,44 @@ import re
 import json
 import streamlit.components.v1 as components
 import estado_global  # módulo para guardar variáveis globais
+from sentence_transformers import SentenceTransformer
+import hdbscan
+import umap
+import numpy as np
+import pandas as pd
+import re
+import unidecode
+from rapidfuzz.distance import Levenshtein
+from nltk.stem.snowball import SnowballStemmer
+
+
+def extrair_primeiras(frase):
+    frase = (
+        frase.lower()
+        .strip()
+        .replace("ã", "a")
+        .replace("õ", "o")
+        .replace("ç", "c")
+        .encode("ascii", "ignore")
+        .decode()
+    )
+    frase = re.sub(r"[^a-z\s]", "", frase)
+    palavras = frase.split()
+
+    if not palavras:
+        return ""
+
+    p1 = palavras[0]
+    p2 = palavras[1] if len(palavras) > 1 else ""
+
+    ## Se for "troca de", "substituicao de", "revisao de", etc.
+    #if p2 in ['da','de','di','do','du']:
+    
+    if len(p2) < 3:
+        return f"{p1} {p2}"
+
+    return p1
+
 
 # ------------------------------------------------------------
 # Função para receber o dicionário vindo do JavaScript
@@ -68,23 +110,84 @@ def exportar_para_csv(grupos, max_dist):
 # MAIN STREAMLIT
 # ------------------------------------------------------------
 def main():
-    st.title("🔤 Agrupamento de Sinônimos (Trocar/Substituir)")
+    st.title("🔤 Agrupamento Inteligente de Tarefas (765 frases)")
 
     caminho = Path("saida.csv")
     if not caminho.exists():
         st.error("Arquivo 'saida.csv' não encontrado.")
         return
 
+    # ---------------------------------------------------------
+    # 1. CARREGA CSV
+    # ---------------------------------------------------------
     df = pd.read_csv(caminho, sep=";")
     df["DescricaoManutencao"] = df["DescricaoManutencao"].astype(str).str.strip()
-    df["idtarefa"] = df["idtarefa"].astype(str).str.strip()
     df = df[df["DescricaoManutencao"] != ""]
 
-    filtro_palavras = df["DescricaoManutencao"].str.contains(
-        r"\btrocar\b|\bsubstituir\b", case=False, regex=True
-    )
-    df = df[filtro_palavras]
+    # ---------------------------------------------------------
+    # 2. NORMALIZA FRASE COMPLETA
+    # ---------------------------------------------------------
+    def normalizar_frase(texto):
+        texto = unidecode.unidecode(texto.lower())
+        texto = re.sub(r"[^a-z0-9\s]", " ", texto)
+        texto = re.sub(r"\s+", " ", texto).strip()
+        return texto
 
+    frases = df["DescricaoManutencao"].apply(normalizar_frase).tolist()
+    frases_unicas = sorted(set(frases))
+
+    st.subheader("📌 Total de frases após normalização")
+    st.write(f"Total: **{len(frases_unicas)}** frases únicas")
+
+    # ---------------------------------------------------------
+    # 3. EMBEDDING COM FRASE COMPLETA
+    # ---------------------------------------------------------
+    st.write("🔍 Gerando embeddings...")
+    modelo = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+    emb = modelo.encode(frases_unicas, show_progress_bar=True)
+
+    # ---------------------------------------------------------
+    # 4. UMAP PARA REDUÇÃO DE DIMENSÃO
+    # ---------------------------------------------------------
+    st.write("🔧 Reduzindo dimensionalidade...")
+    umap_emb = umap.UMAP(
+        n_neighbors=15,
+        min_dist=0.0,
+        n_components=5,
+        metric='cosine'
+    ).fit_transform(emb)
+
+    # ---------------------------------------------------------
+    # 5. AGRUPAMENTO COM HDBSCAN
+    # ---------------------------------------------------------
+    st.write("📊 Agrupando frases...")
+    clusterer = hdbscan.HDBSCAN(
+        min_cluster_size=3,
+        min_samples=1,
+        metric='euclidean'
+    )
+
+    labels = clusterer.fit_predict(umap_emb)
+
+    # ---------------------------------------------------------
+    # 6. MONTA GRUPOS
+    # ---------------------------------------------------------
+    grupos = {}
+    for frase, label in zip(frases_unicas, labels):
+        grupos.setdefault(label, []).append(frase)
+
+    # ---------------------------------------------------------
+    # 7. EXIBE RESULTADO
+    # ---------------------------------------------------------
+    st.header("📦 Agrupamentos Encontrados")
+
+    for label, itens in grupos.items():
+        if label == -1:
+            st.subheader("🟧 Grupo isolado (sem cluster)")
+        else:
+            st.subheader(f"🟩 Grupo {label} — {len(itens)} itens")
+
+        st.code("\n".join(sorted(itens)))
     if df.empty:
         st.warning("Nenhuma descrição encontrada com 'trocar' ou 'substituir'.")
         return
