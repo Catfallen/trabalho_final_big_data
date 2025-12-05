@@ -1,7 +1,8 @@
 import pandas as pd
 from collections import defaultdict
 from dicionario import dicionario_universal
-from etapa4 import agrupar_por_objeto
+from etapa4 import agrupar_por_objeto,segunda_rodada_levenshtein
+from etapa5 import dicionario_final
 CSV_PATH = "saida.csv"
 
 # ---------------------------
@@ -44,19 +45,46 @@ for frase in frases_unicas:
 # Exibe resultados
 # ---------------------------
 
-for verbo, frases in grupos_por_verbo.items():
-    print("VERBO NORMALIZADO:", verbo)
-    print("FRASES DO GRUPO:", frases)
-    print("-" * 40)
+#for verbo, frases in grupos_por_verbo.items():
+#    print("VERBO NORMALIZADO:", verbo)
+#    print("FRASES DO GRUPO:", frases)
+#    print("-" * 40)
     
     
 print("Iniciando etapa 4")
 
 grupos_final = agrupar_por_objeto(grupos_por_verbo)
 
-# Para imprimir o resultado
-for verbo, grupos in grupos_final.items():
+grupos_refinados = segunda_rodada_levenshtein(grupos_final, limiar=4, tamanho_max=10)
+
+
+
+# Impressão resumida
+for verbo, grupos in grupos_refinados.items():
     print(f"VERBO: {verbo}")
     for i, g in enumerate(grupos, 1):
-        print(f"  GRUPO {i}: {g}")
-    print("-" * 50)
+        print(f"  GRUPO {i} ({len(g)} itens): {g}")
+    print("-"*50)
+    
+
+print(grupos_refinados)
+
+json_final = dicionario_final(grupos_refinados)
+
+#segunda rodada do levenshtein
+
+#grupos_pares = #filtro do grupos_final 2 ou mais elementos
+# Para imprimir o resultado
+#for verbo, grupos in grupos_final.items():
+#    print(f"VERBO: {verbo}")
+#    for i, g in enumerate(grupos, 1):
+#        print(f"  GRUPO {i}: {g}")
+#    print("-" * 50)
+
+
+# Mantém apenas grupos com 2 ou mais elementos
+#grupos_pares = [grupo for grupo in grupos_final if len(grupo) >= 2]
+
+# Impressão dos grupos filtrados
+#for i, grupo in enumerate(grupos_pares, 1):
+#    print(f"GRUPO {i}: {grupo}")
